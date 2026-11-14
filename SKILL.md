@@ -1,6 +1,6 @@
 ---
 name: physics-variant-bank
-description: Use when turning high-school physics exams, answer keys, and diagrams into post-exam targeted variant banks, or when revising their worked solutions and printable Word/PDF editions.
+description: 根据高中物理试卷、例题、参考答案和配图制作考后靶向变式题库，或修订对应解析及可打印的 Word/PDF；适用于需要实质变式、单图串行生图、三维立体示意图和原生公式的教学资料制作。
 ---
 
 # 高中物理考后靶向变式题库
