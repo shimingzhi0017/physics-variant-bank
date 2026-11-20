@@ -13,7 +13,7 @@ description: 以物理建模、过程判断、临界分析与规律选择为主�
 | :--- | :--- |
 | [references/physics-design.md](references/physics-design.md) | 阶段一必读：三项反同型测试、反数学化防火墙、阶梯设问与评分要点审查 |
 | [references/drawing-and-qa.md](references/drawing-and-qa.md) | 阶段二必读：四档画布-嵌宽映射、二维/三维路由、六大制图公理、公式排版与真实渲染验收 |
-| [scripts/physics_draw.py](scripts/physics_draw.py) | 阶段二直接导入：300 DPI 纯黑白制图库（4 档等比预设、简体常规宋体自动提取锁死、双向斜面等原语） |
+| [scripts/physics_draw.py](scripts/physics_draw.py) | 阶段二直接导入：300 DPI 纯黑白制图库（4 档紧裁剪预设、大号实心燕尾箭头、简体常规宋体自动提取锁死、双向斜面等原语） |
 | [scripts/build_docx.py](scripts/build_docx.py) | 阶段二直接运行：一键 Pandoc 基底模板构建、全框线与防孤行后处理、七重自动门禁、PDF 与预览图导出 |
 
 ---

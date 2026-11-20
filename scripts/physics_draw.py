@@ -1,11 +1,12 @@
 """
-高中物理试卷纯黑白工程制图复用组件库（300 DPI 确定性印刷版）
+高中物理试卷纯黑白工程制图复用组件库（300 DPI 防压缩确定性印刷版）
 核心特性：
-  1. 4 档固定画布预设 CANVAS_PRESETS 与对应 Word 嵌宽 WORD_WIDTH_CM，锁定全局印刷缩放比 ~0.72；
-  2. 统一放大基准字号（纸面实测 12.2~14.4 pt，下标 9.4 pt）与三级线宽（纸面 0.65~1.30 pt）；
-  3. 自动从多语言 TTC 中精确提取缓存标准中国大陆简体常规宋体 (Noto Serif CJK SC Regular)，
+  1. 4 档固定画布预设 CANVAS_PRESETS、紧裁剪白边与对应 Word 嵌宽 WORD_WIDTH_CM；
+  2. 防压缩加粗三级线宽（2.60/2.00/1.45 pt）与大字号（25/23.5/22/16.5 pt）；
+  3. 统一大号实心燕尾箭头（SwallowtailArrow：主矢量/坐标轴、尺寸线、引出线，虚线箭杆配实心燕尾头）；
+  4. 自动从多语言 TTC 中精确提取缓存标准中国大陆简体常规宋体 (Noto Serif CJK SC Regular)，
      绝不静默退化为日文 JP 0 号字形或粗体；
-  4. draw_block_on_slope 支持 slope_dir='down_right' 与 'up_right' 双向斜面严格贴合。
+  5. draw_block_on_slope 支持 slope_dir='down_right' 与 'up_right' 双向斜面严格贴合。
 """
 import os
 import math
@@ -14,6 +15,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from matplotlib.path import Path
 from matplotlib import font_manager
 from matplotlib.font_manager import FontProperties
 
@@ -34,6 +36,15 @@ FS_CAP = 23.5     # 子图标题 (图甲, 图乙)
 FS_TIK = 22.0     # 刻度数字、角度、面积标注 (30°, 37°, 40, 50)
 FS_CN  = 22.0     # 器件中文标注 (光电门, 电磁铁, 安全门)
 FS_SUB = 16.5     # 中文下标小字号 (F_弹, v_共)
+
+# 燕尾箭头默认参数（以 mutation_scale=10 pt 为基准，严格脱离字号影响）
+ARROW_HL_MAIN   = 1.28   # 主箭头（坐标轴、物理矢量）头长 12.8 pt
+ARROW_HW_MAIN   = 0.46   # 主箭头半宽 4.6 pt（全宽 9.2 pt）
+ARROW_NOTCH     = 0.32   # 燕尾后缘内凹比例（经典人教版物理教材燕尾比例）
+ARROW_HL_DIM    = 1.05   # 尺寸线双向燕尾箭头头长 10.5 pt
+ARROW_HW_DIM    = 0.38   # 尺寸线双向燕尾箭头半宽 3.8 pt
+ARROW_HL_LEADER = 1.02   # 教师解析图引出线燕尾箭头头长 10.2 pt
+ARROW_HW_LEADER = 0.36   # 教师解析图引出线燕尾箭头半宽 3.6 pt
 
 # 4 档固定画布预设与对应 Word 嵌宽（紧裁剪导图 + 防压缩留余量）
 CANVAS_PRESETS = {
@@ -165,15 +176,107 @@ def save_fig(fig, path, pad=0.10, w_pad=0.95, dpi=300):
 
 
 # ==================== 通用几何与物理原语 ====================
-def draw_arrow(ax, x0, y0, x1, y1, lw=LW_MED, hl=0.55, hw=0.28, ls='-', zorder=8):
-    """标准实心燕尾箭头（坐标轴、矢量、浮置加速度通用，加粗防缩印模糊）。"""
-    ax.annotate(
-        '', xy=(x1, y1), xytext=(x0, y0), zorder=zorder,
-        arrowprops=dict(
-            arrowstyle=f'-|>,head_length={hl},head_width={hw}',
-            color=COLOR_BLACK, lw=lw, ls=ls, shrinkA=0, shrinkB=0
-        )
+class SwallowtailArrow(patches.ArrowStyle._Base):
+    """
+    国标/人教版物理教材标准实心燕尾箭头（单向 -> / 双向 <->）。
+    在显示像素坐标系下计算几何顶点，严格不受 equal=False 纵横比拉伸变形影响，
+    且箭杆自动止于燕尾内凹槽内，绝不刺穿箭尖。
+    """
+    def __init__(self, head_length=ARROW_HL_MAIN, head_width=ARROW_HW_MAIN,
+                 notch=ARROW_NOTCH, both=False, draw_shaft=True, draw_head=True):
+        self.head_length = head_length
+        self.head_width = head_width
+        self.notch = notch
+        self.both = both
+        self.draw_shaft = draw_shaft
+        self.draw_head = draw_head
+        super().__init__()
+
+    def _make_head(self, x_from, y_from, x_tip, y_tip, L, W, notch, lw):
+        dx, dy = x_tip - x_from, y_tip - y_from
+        dist = np.hypot(dx, dy)
+        if dist == 0:
+            return None, (x_tip, y_tip)
+        ux, uy = dx / dist, dy / dist
+        nx, ny = -uy, ux
+        half_sin = W / np.hypot(L, W)
+        pad = 0.5 * lw / max(half_sin, 0.25)
+        tx, ty = x_tip - pad * ux, y_tip - pad * uy
+        wx1, wy1 = tx - L * ux + W * nx, ty - L * uy + W * ny
+        wx2, wy2 = tx - L * ux - W * nx, ty - L * uy - W * ny
+        mx, my = tx - L * (1.0 - notch) * ux, ty - L * (1.0 - notch) * uy
+        # 箭杆深入燕尾实心区内部少许，防止与内凹处脱节，同时绝不穿透箭尖
+        sx, sy = tx - L * (1.0 - notch * 1.15) * ux, ty - L * (1.0 - notch * 1.15) * uy
+        verts = [(tx, ty), (wx1, wy1), (mx, my), (wx2, wy2), (tx, ty)]
+        codes = [Path.MOVETO, Path.LINETO, Path.LINETO, Path.LINETO, Path.CLOSEPOLY]
+        return Path(verts, codes), (sx, sy)
+
+    def transmute(self, path, mutation_size, linewidth):
+        L = self.head_length * mutation_size
+        W = self.head_width * mutation_size
+        v = path.vertices.copy()
+        codes = path.codes
+        paths, fills = [], []
+
+        if self.both:
+            hA, pA = self._make_head(v[1, 0], v[1, 1], v[0, 0], v[0, 1], L, W, self.notch, linewidth)
+            v[0] = pA
+        else:
+            hA = None
+
+        hB, pB = self._make_head(v[-2, 0], v[-2, 1], v[-1, 0], v[-1, 1], L, W, self.notch, linewidth)
+        v[-1] = pB
+
+        if self.draw_shaft:
+            paths.append(Path(v, codes))
+            fills.append(False)
+        if self.draw_head:
+            if hA is not None:
+                paths.append(hA)
+                fills.append(True)
+            if hB is not None:
+                paths.append(hB)
+                fills.append(True)
+        return paths, fills
+
+
+def leader_arrowprops(hl=ARROW_HL_LEADER, hw=ARROW_HW_LEADER, notch=ARROW_NOTCH,
+                      lw=LW_THIN, ls='-', shrinkA=4, shrinkB=2):
+    """返回统一的大号实心燕尾引出线 arrowprops（供 ax.annotate 标注面积/交点使用）。"""
+    return dict(
+        arrowstyle=SwallowtailArrow(head_length=hl, head_width=hw, notch=notch),
+        mutation_scale=10.0,
+        color=COLOR_BLACK, lw=lw, ls=ls,
+        joinstyle='miter', shrinkA=shrinkA, shrinkB=shrinkB,
     )
+
+
+def draw_arrow(ax, x0, y0, x1, y1, lw=LW_MED, hl=ARROW_HL_MAIN, hw=ARROW_HW_MAIN,
+               notch=ARROW_NOTCH, ls='-', zorder=8):
+    """标准大号实心燕尾箭头（坐标轴、矢量、浮置加速度通用；虚线箭杆自动配实心燕尾头）。"""
+    if ls == '-':
+        ax.add_patch(patches.FancyArrowPatch(
+            (x0, y0), (x1, y1),
+            arrowstyle=SwallowtailArrow(head_length=hl, head_width=hw, notch=notch),
+            mutation_scale=10.0, color=COLOR_BLACK, lw=lw, ls='-',
+            joinstyle='miter', shrinkA=0, shrinkB=0, zorder=zorder
+        ))
+    else:
+        # 虚线/点画线矢量：箭杆用虚线，燕尾头保持锐利纯黑实心不破碎
+        ax.add_patch(patches.FancyArrowPatch(
+            (x0, y0), (x1, y1),
+            arrowstyle=SwallowtailArrow(head_length=hl, head_width=hw, notch=notch,
+                                        draw_shaft=True, draw_head=False),
+            mutation_scale=10.0, color=COLOR_BLACK, lw=lw, ls=ls,
+            shrinkA=0, shrinkB=0, zorder=zorder
+        ))
+        ax.add_patch(patches.FancyArrowPatch(
+            (x0, y0), (x1, y1),
+            arrowstyle=SwallowtailArrow(head_length=hl, head_width=hw, notch=notch,
+                                        draw_shaft=False, draw_head=True),
+            mutation_scale=10.0, color=COLOR_BLACK, lw=lw, ls='-',
+            joinstyle='miter', shrinkA=0, shrinkB=0, zorder=zorder
+        ))
 
 
 def draw_axes(ax, x_min, x_max, y_min, y_max, xlabel='', ylabel='',
@@ -233,34 +336,38 @@ def draw_spring(ax, p1, p2, coils=7, amp=0.12, lead=0.20, lw=LW_THIN):
     ax.plot(xs, ys, color=COLOR_BLACK, lw=lw, solid_joinstyle='miter', zorder=4)
 
 
-def draw_dim_h(ax, x1, x2, y, label, y_ref, y_ext=None, fs=FS_AX):
-    """绘制水平外置尺寸线（尖端朝外双向细箭头 + 丁字界线 + 白底遮罩标签）。"""
+def draw_dim_h(ax, x1, x2, y, label, y_ref, y_ext=None, fs=FS_AX,
+               hl=ARROW_HL_DIM, hw=ARROW_HW_DIM, notch=ARROW_NOTCH):
+    """绘制水平外置尺寸线（尖端朝外双向实心燕尾箭头 + 丁字界线 + 白底遮罩标签）。"""
     if y_ext is None:
         y_ext = y - 0.14 if y < y_ref else y + 0.14
     ax.plot([x1, x1], [y_ref, y_ext], color=COLOR_BLACK, lw=LW_THIN, ls=':')
     ax.plot([x2, x2], [y_ref, y_ext], color=COLOR_BLACK, lw=LW_THIN, ls=':')
-    ax.annotate(
-        '', xy=(x2, y), xytext=(x1, y),
-        arrowprops=dict(arrowstyle='<|-|>,head_length=0.46,head_width=0.22',
-                        color=COLOR_BLACK, lw=LW_THIN, shrinkA=0, shrinkB=0)
-    )
+    ax.add_patch(patches.FancyArrowPatch(
+        (x1, y), (x2, y),
+        arrowstyle=SwallowtailArrow(head_length=hl, head_width=hw, notch=notch, both=True),
+        mutation_scale=10.0, color=COLOR_BLACK, lw=LW_THIN,
+        joinstyle='miter', shrinkA=0, shrinkB=0, zorder=6
+    ))
     ax.text((x1 + x2) / 2, y, label, fontsize=fs, ha='center', va='center',
-            bbox=dict(facecolor=COLOR_WHITE, edgecolor='none', pad=1.6))
+            bbox=dict(facecolor=COLOR_WHITE, edgecolor='none', pad=1.6), zorder=7)
 
 
-def draw_dim_v(ax, x, y1, y2, label, x_ref, x_ext=None, fs=FS_AX):
-    """绘制竖直外置尺寸线（尖端朝外双向细箭头 + 丁字界线 + 白底遮罩标签）。"""
+def draw_dim_v(ax, x, y1, y2, label, x_ref, x_ext=None, fs=FS_AX,
+               hl=ARROW_HL_DIM, hw=ARROW_HW_DIM, notch=ARROW_NOTCH):
+    """绘制竖直外置尺寸线（尖端朝外双向实心燕尾箭头 + 丁字界线 + 白底遮罩标签）。"""
     if x_ext is None:
         x_ext = x + 0.14 if x > x_ref else x - 0.14
     ax.plot([x_ref, x_ext], [y1, y1], color=COLOR_BLACK, lw=LW_THIN, ls=':')
     ax.plot([x_ref, x_ext], [y2, y2], color=COLOR_BLACK, lw=LW_THIN, ls=':')
-    ax.annotate(
-        '', xy=(x, y2), xytext=(x, y1),
-        arrowprops=dict(arrowstyle='<|-|>,head_length=0.46,head_width=0.22',
-                        color=COLOR_BLACK, lw=LW_THIN, shrinkA=0, shrinkB=0)
-    )
+    ax.add_patch(patches.FancyArrowPatch(
+        (x, y1), (x, y2),
+        arrowstyle=SwallowtailArrow(head_length=hl, head_width=hw, notch=notch, both=True),
+        mutation_scale=10.0, color=COLOR_BLACK, lw=LW_THIN,
+        joinstyle='miter', shrinkA=0, shrinkB=0, zorder=6
+    ))
     ax.text(x, (y1 + y2) / 2, label, fontsize=fs, ha='center', va='center',
-            bbox=dict(facecolor=COLOR_WHITE, edgecolor='none', pad=1.6))
+            bbox=dict(facecolor=COLOR_WHITE, edgecolor='none', pad=1.6), zorder=7)
 
 
 def draw_right_angle(ax, vertex, u1, u2, size=0.22, lw=LW_THIN, zorder=5):
