@@ -17,36 +17,36 @@ import matplotlib.patches as patches
 from matplotlib import font_manager
 from matplotlib.font_manager import FontProperties
 
-# ==================== 确定性印刷常量 ====================
+# ==================== 防缩印/防压缩印刷常量 ====================
 COLOR_BLACK = '#000000'
 COLOR_GRAY  = '#EFEFEF'
 COLOR_WHITE = '#FFFFFF'
 
-# 三级线宽 (pt，缩排 0.72 后纸面等效 1.30 / 0.97 / 0.65 pt)
-LW_THICK = 1.80   # 外轮廓、刚性轨道、地面/墙体基准、主曲线
-LW_MED   = 1.35   # 坐标轴、力/速度/加速度矢量、次轮廓
-LW_THIN  = 0.90   # 虚线投影、尺寸线、细绳、弹簧、剖面线、浮置加速度
+# 三级加粗线宽 (pt) —— 即使教师在 Word 中二次压缩 30%~40% 或黑白复印仍清晰不断线
+LW_THICK = 2.60   # 外轮廓、刚性轨道、地面/墙体基准、主曲线
+LW_MED   = 2.00   # 坐标轴、力/速度/加速度矢量、次轮廓
+LW_THIN  = 1.45   # 虚线投影、尺寸线、细绳、弹簧、剖面线、浮置加速度
 
-# 确定性印刷字号常量 (pt，缩排 0.72 后纸面等效 14.4 / 13.3 / 12.2 / 9.4 pt)
-FS_SYM = 20.0     # 物体、几何点名、物理量主符号 (A, B, F, v_0, H)
-FS_AX  = 18.5     # 坐标轴标题、尺寸线标签 (t/s, F/N, \Delta x)
-FS_CAP = 18.5     # 子图标题 (图甲, 图乙)
-FS_TIK = 17.0     # 刻度数字、角度、面积标注 (30°, 37°, 40, 50)
-FS_CN  = 17.0     # 器件中文标注 (光电门, 电磁铁, 安全门)
-FS_SUB = 13.0     # 中文下标小字号 (F_弹, v_共)
+# 防压缩大字号常量 (pt) —— 默认嵌宽纸面等效 16~19 pt；即使缩窄至 6~10 cm 仍 >= 11~13 pt
+FS_SYM = 25.0     # 物体、几何点名、物理量主符号 (A, B, F, v_0, H)
+FS_AX  = 23.5     # 坐标轴标题、尺寸线标签 (t/s, F/N, \Delta x)
+FS_CAP = 23.5     # 子图标题 (图甲, 图乙)
+FS_TIK = 22.0     # 刻度数字、角度、面积标注 (30°, 37°, 40, 50)
+FS_CN  = 22.0     # 器件中文标注 (光电门, 电磁铁, 安全门)
+FS_SUB = 16.5     # 中文下标小字号 (F_弹, v_共)
 
-# 4 档固定画布预设与对应 Word 嵌宽（保证任意题图缩放比恒定 ~0.72）
+# 4 档固定画布预设与对应 Word 嵌宽（紧裁剪导图 + 防压缩留余量）
 CANVAS_PRESETS = {
-    'tall': (4.0, 4.6),   # 竖直构型（自由落体、频闪、竖直上抛）
-    'std':  (5.4, 3.9),   # 标准单图（函数图像、斜面、矢量图）
-    'wide': (6.8, 3.2),   # 宽幅单图（纸带、双车、通道俯视图）
-    'dual': (8.4, 4.1),   # 双子图（图甲+图乙、左右解析图）
+    'tall': (3.8, 4.5),   # 竖直构型（自由落体、频闪、竖直上抛）
+    'std':  (5.0, 3.7),   # 标准单图（函数图像、斜面、矢量图）
+    'wide': (6.4, 3.0),   # 宽幅单图（纸带、双车、通道俯视图）
+    'dual': (8.0, 3.9),   # 双子图（图甲+图乙、左右解析图）
 }
 WORD_WIDTH_CM = {
-    'tall': 7.3,
-    'std':  9.9,
-    'wide': 12.4,
-    'dual': 15.3,
+    'tall': 7.5,
+    'std':  10.2,
+    'wide': 12.8,
+    'dual': 15.5,
 }
 
 _CN_FONT_KEYWORDS = ('Noto Serif CJK SC', 'Noto Serif CJK', 'SimSun', 'STSong', 'Songti',
@@ -154,19 +154,19 @@ def new_subplots(nrows=1, ncols=2, preset='dual', figsize=None, width_ratios=Non
     return fig, axes
 
 
-def save_fig(fig, path, pad=0.14, w_pad=0.85, dpi=300):
-    """自动创建目录并以 300 DPI 纯白底导出。"""
+def save_fig(fig, path, pad=0.10, w_pad=0.95, dpi=300):
+    """自动创建目录，去除多余白边并以 300 DPI 纯白底导出（提升有效图幅与压缩可读性）。"""
     out_dir = os.path.dirname(path)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
     plt.tight_layout(pad=pad, w_pad=w_pad)
-    fig.savefig(path, dpi=dpi, facecolor=COLOR_WHITE)
+    fig.savefig(path, dpi=dpi, facecolor=COLOR_WHITE, bbox_inches='tight', pad_inches=0.06)
     plt.close(fig)
 
 
 # ==================== 通用几何与物理原语 ====================
-def draw_arrow(ax, x0, y0, x1, y1, lw=LW_MED, hl=0.45, hw=0.22, ls='-', zorder=8):
-    """标准实心燕尾箭头（坐标轴、矢量、浮置加速度通用）。"""
+def draw_arrow(ax, x0, y0, x1, y1, lw=LW_MED, hl=0.55, hw=0.28, ls='-', zorder=8):
+    """标准实心燕尾箭头（坐标轴、矢量、浮置加速度通用，加粗防缩印模糊）。"""
     ax.annotate(
         '', xy=(x1, y1), xytext=(x0, y0), zorder=zorder,
         arrowprops=dict(
@@ -241,11 +241,11 @@ def draw_dim_h(ax, x1, x2, y, label, y_ref, y_ext=None, fs=FS_AX):
     ax.plot([x2, x2], [y_ref, y_ext], color=COLOR_BLACK, lw=LW_THIN, ls=':')
     ax.annotate(
         '', xy=(x2, y), xytext=(x1, y),
-        arrowprops=dict(arrowstyle='<|-|>,head_length=0.38,head_width=0.18',
+        arrowprops=dict(arrowstyle='<|-|>,head_length=0.46,head_width=0.22',
                         color=COLOR_BLACK, lw=LW_THIN, shrinkA=0, shrinkB=0)
     )
     ax.text((x1 + x2) / 2, y, label, fontsize=fs, ha='center', va='center',
-            bbox=dict(facecolor=COLOR_WHITE, edgecolor='none', pad=1.4))
+            bbox=dict(facecolor=COLOR_WHITE, edgecolor='none', pad=1.6))
 
 
 def draw_dim_v(ax, x, y1, y2, label, x_ref, x_ext=None, fs=FS_AX):
@@ -256,11 +256,11 @@ def draw_dim_v(ax, x, y1, y2, label, x_ref, x_ext=None, fs=FS_AX):
     ax.plot([x_ref, x_ext], [y2, y2], color=COLOR_BLACK, lw=LW_THIN, ls=':')
     ax.annotate(
         '', xy=(x, y2), xytext=(x, y1),
-        arrowprops=dict(arrowstyle='<|-|>,head_length=0.38,head_width=0.18',
+        arrowprops=dict(arrowstyle='<|-|>,head_length=0.46,head_width=0.22',
                         color=COLOR_BLACK, lw=LW_THIN, shrinkA=0, shrinkB=0)
     )
     ax.text(x, (y1 + y2) / 2, label, fontsize=fs, ha='center', va='center',
-            bbox=dict(facecolor=COLOR_WHITE, edgecolor='none', pad=1.4))
+            bbox=dict(facecolor=COLOR_WHITE, edgecolor='none', pad=1.6))
 
 
 def draw_right_angle(ax, vertex, u1, u2, size=0.22, lw=LW_THIN, zorder=5):

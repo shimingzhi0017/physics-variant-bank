@@ -182,7 +182,7 @@ def postprocess_docx(path):
 
 
 def verify_docx(docx_path, expected_imgs=None, max_ar_err_pct=0.5,
-                min_print_scale=0.62, max_print_scale=0.92, expected_dpi=300.0):
+                min_print_scale=0.65, max_print_scale=1.15, expected_dpi=300.0):
     """
     七重自动化交付终检（确保每次输出在页面、公式、表格、图片与印刷字号上确定一致）：
       1. 正文及表格中 0 残留 LaTeX '$' 源码；
@@ -291,7 +291,7 @@ def verify_docx(docx_path, expected_imgs=None, max_ar_err_pct=0.5,
 
 
 def postprocess_and_verify(docx_path, expected_imgs=None, max_ar_err_pct=0.5,
-                           min_print_scale=0.62, max_print_scale=0.92):
+                           min_print_scale=0.65, max_print_scale=1.15):
     """一步完成全框线与防孤行后处理及七重自动化终检。"""
     postprocess_docx(docx_path)
     return verify_docx(
