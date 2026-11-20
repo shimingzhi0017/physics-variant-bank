@@ -79,7 +79,7 @@ description: 以物理建模、过程判断、临界分析与规律选择为主�
    python scripts/build_docx.py compile student_bank.md "{卷名}_学生版.docx" --expected-imgs N --pdf --preview-dir preview_s
    python scripts/build_docx.py compile teacher_bank.md "{卷名}_教师版.docx" --expected-imgs M --pdf --preview-dir preview_t
    ```
-   必须全部通过七重代码门禁 `[PASS]`：`raw_$=0`、无代码块误判、`trailing_eq=0`、含表格必有 `Table` 样式、A4 页面尺寸锁死、图数与宽高比误差 `< 0.5%`、全图印刷缩放比 `print_scale ∈ [0.65, 1.15]`（防压缩清晰度保障）。
+   必须全部通过七重代码门禁 `[PASS]`：`raw_$=0`、无代码块误判、`trailing_eq=0`、`upright_rm=OK`（正体单位/点名补齐 `<m:nor/>` 防斜体退化）、含表格必有 `Table` 样式、A4 页面尺寸锁死、图数与宽高比误差 `< 0.5%`、全图印刷缩放比 `print_scale ∈ [0.65, 1.15]`（防压缩清晰度保障）。
 3. **PDF 真实页面目视终检与批注闭环：**
    - 必须查看 `preview_s/` 与 `preview_t/` 中的关键渲染页（表格页、填空页、双子图页、复杂公式页、末页），核对纸面等效字号、中文字形、分页连贯性与公式显示，**不得以 OMML 数量或源码正确替代视觉验收**。
    - 如实报告实际验证过的渲染环境（如“LibreOffice 导出 PDF 渲染抽检通过”），不夸大宣称未经测试的软件环境。用户再次指出同一缺陷时重新开项修改并对比前后渲染截图。清理临时预览目录后交付。

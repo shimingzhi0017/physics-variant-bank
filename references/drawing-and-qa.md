@@ -70,7 +70,7 @@
    - **量纲与正方向一致：** 相加各项量纲相同，无量纲比值分子分母物理含义对应；极值表述（最高/最低、最大位移/最大位移大小）与正方向约定一致。
 2. **Pandoc 基底模板与分页控制（已封装入 `scripts/build_docx.py`）：**
    - `build_reference_docx()` 自动拉取 `pandoc --print-default-data-file reference.docx` 为基底并覆写 A4 纸张（`21.0 × 29.7 cm`）与宋体/黑体样式，完整保留 `Table`/`Compact` 内建样式，彻底根除 LibreOffice 表格坍塌；
-   - `postprocess_docx()` 自动写入表格全框线与浅灰表头、居中卷头与嵌图，并自动为标题及公式/图片前的冒号引导句设置 `keep_with_next`，减少页末孤行；
+   - `postprocess_docx()` 自动写入表格全框线与浅灰表头、居中卷头与嵌图、自动为标题及公式/图片前的冒号引导句设置 `keep_with_next` 减少页末孤行，并自动执行 `fix_omml_upright()` 为所有 `\mathrm{...}` 字母/单位补齐 ECMA-376 `<m:nor/>` 且合并多字符单位（`cm`/`Hz`/`km`/`min`），彻底根除 LibreOffice/WPS 将正体单位与点名误渲染为斜体或字距松散的问题；
    - Markdown 中的 `\newpage` 在 DOCX 中未必生效，确需强制分页应使用 Word 原生段落属性并目视验证 PDF 实际分页。
 3. **七重自动门禁 + 真实 PDF 目视验收：**
    - 运行 `python scripts/build_docx.py compile ... --pdf --preview-dir ...`，必须通过全部 7 项代码断言（`raw_$=0`、无代码块误判、`trailing_eq=0`、含表格必有 `Table` 样式、A4 尺寸锁死、图数与宽高比误差 `< 0.5%`、全图 `print_scale ∈ [0.65, 1.15]`）；

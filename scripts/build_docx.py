@@ -16,6 +16,7 @@ import zipfile
 from io import BytesIO
 
 from PIL import Image
+from lxml import etree
 from docx import Document
 from docx.shared import Cm, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -25,6 +26,7 @@ from docx.oxml.ns import qn, nsdecls
 
 EMU_PER_INCH = 914400.0
 EMU_PER_CM = 360000.0
+M_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/math'
 
 
 def _set_run_fonts(style, east_asia, ascii_font='Times New Roman'):
@@ -151,9 +153,75 @@ def _is_display_math_or_drawing(p):
     return has_draw or has_omath_para
 
 
+def _is_plain_alpha_mrun(elem):
+    """判断是否为带 m:sty='p' 且含字母/汉字的 OMML 字符 run（如单位 m/s、cm、Hz、点名 A/B、下标 min）。"""
+    if elem.tag != f'{{{M_NS}}}r':
+        return False
+    rpr = elem.find(f'{{{M_NS}}}rPr')
+    if rpr is None:
+        return False
+    sty = rpr.find(f'{{{M_NS}}}sty')
+    if sty is None or sty.get(f'{{{M_NS}}}val') != 'p':
+        return False
+    txt = ''.join(t.text or '' for t in elem.findall(f'{{{M_NS}}}t'))
+    return bool(txt) and any(ch.isalpha() for ch in txt)
+
+
+def fix_omml_upright(doc):
+    """
+    修复 Pandoc 导出 OMML \\mathrm{...} 在 LibreOffice / WPS 中退化为斜体的跨平台缺陷：
+      1. 对所有带 <m:sty m:val="p"/> 且含字母/汉字的 <m:r>，按 ECMA-376 XSD 顺序在 <m:rPr>
+         首位补齐 <m:nor/>（运算符 =, +, /, × 等保持无 <m:nor/> 以保留原生数学间距）；
+      2. 合并同一父节点下相邻的纯字母正体 <m:r>（如 c+m -> cm, H+z -> Hz, m+i+n -> min, k+m -> km），
+         避免多字符单位与下标在 LibreOffice StarMath 中出现额外字距缝隙。
+    """
+    m_r_tag = f'{{{M_NS}}}r'
+    m_rpr_tag = f'{{{M_NS}}}rPr'
+    m_nor_tag = f'{{{M_NS}}}nor'
+    m_t_tag = f'{{{M_NS}}}t'
+
+    fixed = 0
+    for r in doc.element.iter(m_r_tag):
+        if _is_plain_alpha_mrun(r):
+            rpr = r.find(m_rpr_tag)
+            if rpr.find(m_nor_tag) is None:
+                rpr.insert(0, etree.Element(m_nor_tag))
+                fixed += 1
+
+    # 合并相邻的纯字母正体 <m:r>（如 cm, Hz, km, min, AB）
+    parents = set()
+    for r in doc.element.iter(m_r_tag):
+        p = r.getparent()
+        if p is not None:
+            parents.add(p)
+
+    for parent in parents:
+        children = list(parent)
+        i = 0
+        while i < len(children) - 1:
+            cur = children[i]
+            nxt = children[i + 1]
+            if _is_plain_alpha_mrun(cur) and _is_plain_alpha_mrun(nxt):
+                cur_ts = cur.findall(m_t_tag)
+                nxt_ts = nxt.findall(m_t_tag)
+                cur_txt = ''.join(t.text or '' for t in cur_ts)
+                nxt_txt = ''.join(t.text or '' for t in nxt_ts)
+                # 仅合并无额外 Word 字符格式差异的纯字母正体 run
+                if (cur_txt.isalpha() and nxt_txt.isalpha()
+                        and cur.find(qn('w:rPr')) is None and nxt.find(qn('w:rPr')) is None
+                        and cur_ts and nxt_ts):
+                    cur_ts[-1].text = (cur_ts[-1].text or '') + nxt_txt
+                    parent.remove(nxt)
+                    children.pop(i + 1)
+                    continue
+            i += 1
+    return fixed
+
+
 def postprocess_docx(path):
-    """后处理：卷头居中、含图段落居中、引导句与下方公式/插图同页绑定、全部表格写入全框线。"""
+    """后处理：卷头居中、含图段落居中、引导句与下方公式/插图同页绑定、全部表格写入全框线、OMML正体单位锁死。"""
     doc = Document(path)
+    fix_omml_upright(doc)
     if doc.paragraphs:
         doc.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
     if len(doc.paragraphs) > 1:
@@ -220,7 +288,7 @@ def verify_docx(docx_path, expected_imgs=None, max_ar_err_pct=0.5,
     if 'SourceCode' in xml_str or 'VerbatimChar' in xml_str:
         raise AssertionError(f"[FAIL] {docx_path}: 检测到误判代码块样式，请检查 Markdown 是否存在 4 空格缩进！")
 
-    # 4. OMML 末尾孤立 '=' 检查
+    # 4. OMML 末尾孤立 '=' 与正体单位/点名 <m:nor/> 锁死检查
     omaths = doc.element.xpath('.//*[local-name()="oMath"]')
     trailing_eq = 0
     for om in omaths:
@@ -230,6 +298,16 @@ def verify_docx(docx_path, expected_imgs=None, max_ar_err_pct=0.5,
     if trailing_eq > 0:
         raise AssertionError(
             f"[FAIL] {docx_path}: 发现 {trailing_eq} 处 OMML 公式以 '=' 结尾，LibreOffice 会渲染为 '¿'！请将填空等号移到公式外。"
+        )
+    unfixed_rm = 0
+    for r in doc.element.iter(f'{{{M_NS}}}r'):
+        if _is_plain_alpha_mrun(r):
+            rpr = r.find(f'{{{M_NS}}}rPr')
+            if rpr is not None and rpr.find(f'{{{M_NS}}}nor') is None:
+                unfixed_rm += 1
+    if unfixed_rm > 0:
+        raise AssertionError(
+            f"[FAIL] {docx_path}: 发现 {unfixed_rm} 处 OMML 正体字母/单位缺失 <m:nor/>，LibreOffice 会退化为斜体！请运行 postprocess_docx()。"
         )
 
     # 5. 表格内建 Table 样式检查
@@ -279,7 +357,7 @@ def verify_docx(docx_path, expected_imgs=None, max_ar_err_pct=0.5,
     sc_info = f"{min_sc:.2f}~{max_sc:.2f}" if inlines else "N/A"
     print(
         f"[PASS] {docx_path} | A4 | imgs={len(inlines)} (max_ar_err={max_err:.4f}%, scale={sc_info}) "
-        f"| omml={len(omaths)} | tables={len(doc.tables)} | raw_$=0 | trailing_eq=0"
+        f"| omml={len(omaths)} | tables={len(doc.tables)} | raw_$=0 | trailing_eq=0 | upright_rm=OK"
     )
     return {
         'imgs': len(inlines),
