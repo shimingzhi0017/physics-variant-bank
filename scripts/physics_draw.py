@@ -165,14 +165,24 @@ def new_subplots(nrows=1, ncols=2, preset='dual', figsize=None, width_ratios=Non
     return fig, axes
 
 
-def save_fig(fig, path, pad=0.10, w_pad=0.95, dpi=300):
-    """自动创建目录，去除多余白边并以 300 DPI 纯白底导出（提升有效图幅与压缩可读性）。"""
+def save_fig(fig, path, pad=0.10, w_pad=0.95, dpi=300, preset=None):
+    """自动创建目录，去除多余白边并以 300 DPI 纯白底导出；可选按 preset 检查预期印刷缩放比。"""
     out_dir = os.path.dirname(path)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
     plt.tight_layout(pad=pad, w_pad=w_pad)
     fig.savefig(path, dpi=dpi, facecolor=COLOR_WHITE, bbox_inches='tight', pad_inches=0.06)
     plt.close(fig)
+    if preset in WORD_WIDTH_CM:
+        from PIL import Image
+        with Image.open(path) as im:
+            w_px, _ = im.size
+        expected_scale = (WORD_WIDTH_CM[preset] / 2.54) / (w_px / float(dpi))
+        if not (0.68 <= expected_scale <= 1.12):
+            print(
+                f"[WARN] {path}: preset='{preset}' 对应嵌宽 {WORD_WIDTH_CM[preset]}cm 时"
+                f"预计 print_scale={expected_scale:.2f}（安全区间 0.65~1.15），建议调整 preset 或微调 xlim/figsize。"
+            )
 
 
 # ==================== 通用几何与物理原语 ====================
@@ -281,13 +291,14 @@ def draw_arrow(ax, x0, y0, x1, y1, lw=LW_MED, hl=ARROW_HL_MAIN, hw=ARROW_HW_MAIN
 
 def draw_axes(ax, x_min, x_max, y_min, y_max, xlabel='', ylabel='',
               origin_label=r'$\mathrm{O}$', x_lbl_offset=(0.0, -0.48),
-              y_lbl_offset=(0.24, 0.08), o_offset=(-0.34, -0.48), lw=LW_MED):
+              y_lbl_offset=(0.24, 0.08), o_offset=(-0.34, -0.48),
+              x_lbl_ha='center', lw=LW_MED):
     """绘制标准纯黑白直角坐标系。"""
     draw_arrow(ax, x_min, 0, x_max, 0, lw=lw)
     draw_arrow(ax, 0, y_min, 0, y_max, lw=lw)
     if xlabel:
         ax.text(x_max + x_lbl_offset[0], x_lbl_offset[1], xlabel,
-                fontsize=FS_AX, ha='center', va='top')
+                fontsize=FS_AX, ha=x_lbl_ha, va='top')
     if ylabel:
         ax.text(y_lbl_offset[0], y_max + y_lbl_offset[1], ylabel,
                 fontsize=FS_AX, ha='left', va='center')
@@ -447,3 +458,16 @@ def draw_pulley(ax, center, radius, fill=COLOR_GRAY, lw=LW_THICK, zorder=3):
         center, radius, facecolor=fill, edgecolor=COLOR_BLACK, lw=lw, zorder=zorder
     ))
     ax.plot(center[0], center[1], 'ko', ms=2.6, zorder=zorder + 1)
+
+
+def draw_rot_arc(ax, cx, cy, rx, ry, theta1=-150, theta2=-25,
+                 label=r'$\omega$', lbl_pos=None, lw=LW_MED):
+    """在竖直转轴或转盘上方绘制转动方向椭圆弧与实心燕尾箭头。"""
+    ts = np.linspace(math.radians(theta1), math.radians(theta2), 60)
+    xs = cx + rx * np.cos(ts)
+    ys = cy + ry * np.sin(ts)
+    ax.plot(xs[:-3], ys[:-3], color=COLOR_BLACK, lw=lw, zorder=7)
+    draw_arrow(ax, xs[-6], ys[-6], xs[-1], ys[-1], lw=lw, hl=1.05, hw=0.38, zorder=8)
+    if label:
+        lx, ly = lbl_pos if lbl_pos else (cx + rx + 0.35, cy)
+        ax.text(lx, ly, label, fontsize=FS_SYM, ha='left', va='center', zorder=9)

@@ -9,6 +9,7 @@
 """
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -134,6 +135,11 @@ def set_table_full_grid(table):
     tblPr.append(parse_xml(cell_mar_xml))
 
     for r_idx, row in enumerate(table.rows):
+        trPr = row._tr.get_or_add_trPr()
+        if trPr.find(qn('w:cantSplit')) is None:
+            trPr.append(OxmlElement('w:cantSplit'))
+        if r_idx == 0 and trPr.find(qn('w:tblHeader')) is None:
+            trPr.append(OxmlElement('w:tblHeader'))
         for cell in row.cells:
             cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
             tcPr = cell._tc.get_or_add_tcPr()
@@ -310,7 +316,8 @@ def verify_docx(docx_path, expected_imgs=None, max_ar_err_pct=0.5,
             f"[FAIL] {docx_path}: 发现 {unfixed_rm} 处 OMML 正体字母/单位缺失 <m:nor/>，LibreOffice 会退化为斜体！请运行 postprocess_docx()。"
         )
 
-    # 5. 表格内建 Table 样式检查
+    # 5. 表格内建 Table 样式及跨页重复表头 / 防单行劈裂检查
+    tbl_nosplit_str = 'N/A'
     if len(doc.tables) > 0:
         with zipfile.ZipFile(docx_path) as zf:
             styles_xml = zf.read('word/styles.xml').decode('utf-8', errors='ignore')
@@ -318,6 +325,18 @@ def verify_docx(docx_path, expected_imgs=None, max_ar_err_pct=0.5,
             raise AssertionError(
                 f"[FAIL] {docx_path}: 含表格但 word/styles.xml 缺失 Pandoc 'Table' 样式，LibreOffice 导出 PDF 会表格坍塌！"
             )
+        for t_idx, tbl in enumerate(doc.tables, 1):
+            for r_idx, row in enumerate(tbl.rows):
+                trPr = row._tr.find(qn('w:trPr'))
+                if trPr is None or trPr.find(qn('w:cantSplit')) is None:
+                    raise AssertionError(
+                        f"[FAIL] {docx_path} 表 {t_idx} 第 {r_idx + 1} 行缺失 <w:cantSplit/>，跨页会被劈裂！"
+                    )
+                if r_idx == 0 and trPr.find(qn('w:tblHeader')) is None:
+                    raise AssertionError(
+                        f"[FAIL] {docx_path} 表 {t_idx} 首行缺失 <w:tblHeader/>，跨页无法重复表头！"
+                    )
+        tbl_nosplit_str = 'OK'
 
     # 6 & 7. 嵌图数量、宽高比与印刷缩放比检查
     inlines = doc.element.xpath('.//*[local-name()="inline"]')
@@ -357,7 +376,7 @@ def verify_docx(docx_path, expected_imgs=None, max_ar_err_pct=0.5,
     sc_info = f"{min_sc:.2f}~{max_sc:.2f}" if inlines else "N/A"
     print(
         f"[PASS] {docx_path} | A4 | imgs={len(inlines)} (max_ar_err={max_err:.4f}%, scale={sc_info}) "
-        f"| omml={len(omaths)} | tables={len(doc.tables)} | raw_$=0 | trailing_eq=0 | upright_rm=OK"
+        f"| omml={len(omaths)} | tables={len(doc.tables)} | raw_$=0 | trailing_eq=0 | upright_rm=OK | tbl_nosplit={tbl_nosplit_str}"
     )
     return {
         'imgs': len(inlines),
@@ -365,7 +384,73 @@ def verify_docx(docx_path, expected_imgs=None, max_ar_err_pct=0.5,
         'scale_range': (min_sc, max_sc) if inlines else None,
         'omml': len(omaths),
         'tables': len(doc.tables),
+        'tbl_nosplit': tbl_nosplit_str,
     }
+
+
+def precheck_markdown(md_path):
+    """
+    编译前 Markdown 确定性预检（跳过围栏代码块）：
+      1. 无序列表项前缺空行粘连；
+      2. 选项存在 4 空格以上缩进（会被 Pandoc 误判为代码块）；
+      3. 行内公式以 '=' 结尾（LibreOffice 会渲染为 '¿'）。
+    """
+    with open(md_path, 'r', encoding='utf-8') as f:
+        lines = f.read().splitlines()
+
+    errors = []
+    in_fence = False
+    in_ul = False
+    for i, line in enumerate(lines):
+        lineno = i + 1
+        s = line.lstrip()
+        if s.startswith('```'):
+            in_fence = not in_fence
+            in_ul = False
+            continue
+        if in_fence:
+            continue
+        if not s:
+            in_ul = False
+            continue
+
+        # 1. 无序列表项前缺空行（追踪 in_ul，允许同一无序列表内的连续兄弟项紧跟续写或 $$ 公式块）
+        is_hr = bool(re.match(r'^([-*_])\s*(\1\s*){2,}$', s.strip()))
+        is_ul = (s.startswith('- ') or s.startswith('* ')) and not is_hr
+        if is_ul:
+            if i > 0 and not in_ul:
+                prev_s = lines[i - 1].strip()
+                if (
+                    prev_s
+                    and not prev_s.startswith('```')
+                    and not re.match(r'^([-*+]|\d+\.)\s', prev_s)
+                    and not prev_s.startswith(('#', '|', '>'))
+                ):
+                    errors.append(
+                        f"第 {lineno} 行：无序列表项前缺少空行，Pandoc 会将其并入上一段变成行内短横线"
+                    )
+            in_ul = True
+        elif s.startswith(('#', '|', '>')) or is_hr or re.match(r'^\d+\.\s', s):
+            in_ul = False
+
+        # 2. 4 空格缩进选项
+        if re.match(r'^ {4,}[A-D]\.', line):
+            errors.append(
+                f"第 {lineno} 行：选项存在 4 空格以上缩进，Pandoc 会误判为代码块，请改为顶格"
+            )
+
+        # 3. 行内公式末尾孤立 '='
+        if not s.startswith('$$'):
+            line_no_disp = re.sub(r'\$\$.*?\$\$', '', line)
+            if re.search(r'(?<!\$)\$(?!\$)([^$\n]+?)=\s*\$(?!\$)', line_no_disp):
+                errors.append(
+                    f"第 {lineno} 行：行内公式以 '=' 结尾，LibreOffice 会渲染为 '¿'，请将等号移至公式外"
+                )
+
+    if errors:
+        msg = f"[PRECHECK FAIL] {md_path} 发现 {len(errors)} 处 Markdown 隐患：\n  - " + "\n  - ".join(errors)
+        raise AssertionError(msg)
+    print(f"[PRECHECK PASS] {md_path}")
 
 
 def postprocess_and_verify(docx_path, expected_imgs=None, max_ar_err_pct=0.5,
@@ -392,6 +477,7 @@ def compile_bank(md_path, out_docx, reference_docx='reference.docx',
     """
     if not shutil.which('pandoc'):
         raise RuntimeError("未检测到 pandoc 命令，请先安装 Pandoc。")
+    precheck_markdown(md_path)
     build_reference_docx(reference_docx)
     subprocess.check_call([
         'pandoc', md_path, '-o', out_docx, f'--reference-doc={reference_docx}'
