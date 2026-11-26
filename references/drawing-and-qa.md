@@ -10,21 +10,22 @@
 - **三维空间场景：** 依赖前后深度、空间夹角或三维落点时必须配三维立体主图（先生成干净黑白/浅灰结构底图并核验几何，再叠矢量标注层，做到结构与标签解耦；俯/侧视图仅作辅助）。二维共面题不强加透视。
 - **单图串行核验：** 逐张生成并目视检查，通过后再处理下一张。
 
-## 二、四档画布预设与脚本调用速查
+## 二、五档画布预设与脚本调用速查
 
-二维图一律从下表 4 档 `preset` 中选型，Markdown 嵌图仅写对应固定宽度 `{width=XXcm}`（不写高度）：
+二维图一律从下表 5 档 `preset` 中选型，Markdown 嵌图仅写对应固定宽度 `{width=XXcm}`（严禁写 `height=`）：
 
 | `preset` | 适用场景 | `figsize (in)` | Markdown 嵌宽 |
 | :---: | :--- | :---: | :---: |
 | `'tall'` | 竖直或近方形构型（下落、抛体、等比例矢量圆弧） | `(3.8, 4.5)` | `{width=7.5cm}` |
-| `'std'` | 标准单图（坐标图像、斜面、受力/矢量分解） | `(5.0, 3.7)` | `{width=10.2cm}` |
-| `'wide'` | 宽幅单图（纸带、双车、传动/长轨道） | `(6.4, 3.0)` | `{width=12.8cm}` |
+| `'std'` | 标准单图（坐标图像、斜面、单电路、受力/矢量分解） | `(5.0, 3.7)` | `{width=10.2cm}` |
+| `'wide'` | 宽幅单图（纸带、双车、光电门长木板、电磁导轨俯视图） | `(6.4, 3.0)` | `{width=12.8cm}` |
 | `'dual'` | 双子图（图甲装置 + 图乙图像、左右对比图） | `(8.0, 3.9)` | `{width=15.5cm}` |
+| `'grid'` | $2\times 2$ 四子图矩阵（甲乙丙丁四图或四个图像选项对比） | `(8.0, 6.4)` | `{width=15.5cm}` |
 
-**脚本调用要点（具体常量见 `scripts/physics_draw.py`）：**
+**脚本调用要点（具体常量与原语见 `scripts/physics_draw.py`）：**
 - 中文标注统一用 `get_cn_font()`（自动缓存至 `~/.cache/physics-variant-bank/`），中文下标用 `draw_cn_sub()`，**严禁在 Matplotlib `mathtext` 中使用 `\text{...}` 或 `\triangle`**；
 - 双子图含“几何装置 + 函数图像”组合时，使用 `new_subplots(1, 2, preset='dual', equal=(True, False))` 分别为左图锁定等比例、右图放开纵横比；
-- 引出线统一用 `leader_arrowprops()`，旋转方向用 `draw_rot_arc()`，斜面物块核对 `slope_dir='down_right'|'up_right'`；
+- **跨模块原语优先复用：** 力学用 `draw_ground`/`draw_wall`/`draw_spring`/`draw_pulley`/`draw_block_on_slope`/`draw_rot_arc`；电磁场与电路优先用 `draw_bfield`（`'in'` 叉 / `'out'` 点）、`draw_resistor`（支持 `variable`/`rheostat`）、`draw_battery`、`draw_capacitor`、`draw_meter`、`draw_switch`、`draw_node`；引出线统一用 `leader_arrowprops()`；
 - 调用 `save_fig(fig, path, preset=...)` 自动检查紧裁剪后的预期 `print_scale`，若 `equal=True` 导致图幅偏窄触发 `[WARN]`，立即改换 `'tall'` 预设或调整坐标范围。
 
 ## 三、六大视觉公理（逐图目视必检）
@@ -41,9 +42,9 @@
 ## 四、Markdown 避坑与 PDF 真实渲染验收
 
 - **Markdown 书写铁律（编译前由 `precheck_markdown()` 自动预检）：**
-  - 行内/行间公式统一用 `$...$` / `$$...$$`，代数商优先用 `\frac{...}{...}`；
-  - 填空横线前等号移出公式外（写 `$v$ = __________`，禁写 `$v =$`）；
-  - 无序列表项前留空行（同一列表内连续兄弟项除外），选项 `A.`～`D.` 顶格零缩进；
-  - 嵌图仅写 `{width=XXcm}`，不使用不稳定的 `\newpage`。
+  - 行内/行间公式统一用 `$...$` / `$$...$$`，代数商优先用 `\frac{...}{...}` 或 `\dfrac{...}{...}`；**禁用 Pandoc 不兼容宏 `\cfrac`、`\xlongequal`、`\degree`、`\rm`**（分别改用 `\dfrac`、`\overset{...}{=}`、`^\circ`、`\mathrm{...}`）；
+  - 填空横线前等号移出公式外（写 `$v$ = __________`，禁写 `$v =$` 或公式内 `\underline`）；
+  - 无序列表项前留空行（同一列表内连续兄弟项除外），选项 `A. `～`D. ` 顶格独立成段且相邻选项间必须留空行；
+  - 嵌图仅写 `{width=XXcm}`（严禁写 `height=`），不使用不稳定的 `\newpage`。
 - **一键编译与自动门禁：** `scripts/build_docx.py compile` 自动完成 Markdown 预检、A4 模板构建、表格全框线与跨页防劈裂/重复表头、OMML 正体单位锁死、图数/宽高比/印刷缩放比全检及 LibreOffice PDF 与预览图导出。
 - **PDF 真实目视终检（不可省略）：** 必须打开 `preview_dir` 中的关键页面（表格跨页、填空页、双子图页、公式密集页、末页）肉眼核验纸面等效字号、简体常规宋字形、正体单位与分页连贯性；**不得以源码正确或 OMML 计数替代目视验收**；交付时如实说明已验证的渲染器，不夸大未测环境。

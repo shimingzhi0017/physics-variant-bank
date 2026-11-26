@@ -46,18 +46,20 @@ ARROW_HW_DIM    = 0.38   # 尺寸线双向燕尾箭头半宽 3.8 pt
 ARROW_HL_LEADER = 1.02   # 教师解析图引出线燕尾箭头头长 10.2 pt
 ARROW_HW_LEADER = 0.36   # 教师解析图引出线燕尾箭头半宽 3.6 pt
 
-# 4 档固定画布预设与对应 Word 嵌宽（紧裁剪导图 + 防压缩留余量）
+# 5 档固定画布预设与对应 Word 嵌宽（紧裁剪导图 + 防压缩留余量）
 CANVAS_PRESETS = {
-    'tall': (3.8, 4.5),   # 竖直构型（自由落体、频闪、竖直上抛）
-    'std':  (5.0, 3.7),   # 标准单图（函数图像、斜面、矢量图）
-    'wide': (6.4, 3.0),   # 宽幅单图（纸带、双车、通道俯视图）
+    'tall': (3.8, 4.5),   # 竖直构型（自由落体、频闪、竖直上抛、单列圆弧）
+    'std':  (5.0, 3.7),   # 标准单图（函数图像、斜面、单电路、矢量图）
+    'wide': (6.4, 3.0),   # 宽幅单图（纸带、双车、光电门长木板、导轨俯视图）
     'dual': (8.0, 3.9),   # 双子图（图甲+图乙、左右解析图）
+    'grid': (8.0, 6.4),   # 2x2 四子图矩阵（甲乙丙丁四图对比、四个图像选项对比）
 }
 WORD_WIDTH_CM = {
     'tall': 7.5,
     'std':  10.2,
     'wide': 12.8,
     'dual': 15.5,
+    'grid': 15.5,
 }
 
 _CN_FONT_KEYWORDS = ('Noto Serif CJK SC', 'Noto Serif CJK', 'SimSun', 'STSong', 'Songti',
@@ -484,3 +486,184 @@ def draw_rot_arc(ax, cx, cy, rx, ry, theta1=-150, theta2=-25,
     if label:
         lx, ly = lbl_pos if lbl_pos else (cx + rx + 0.35, cy)
         ax.text(lx, ly, label, fontsize=FS_SYM, ha='left', va='center', zorder=9)
+
+
+# ==================== 电磁学与 GB/T 4728 电路原语 ====================
+def draw_bfield(ax, x_range, y_range, direction='in', nx=5, ny=4,
+                size=0.10, lw=LW_THIN, label='', cell=(0, -1), zorder=1):
+    """
+    绘制均匀分布的纯黑白匀强磁场符号阵列（底层 zorder=1，不遮挡前景导轨与轨迹）：
+      - direction='in':  垂直纸面向里（矢量绘制标准正交 '×'）；
+      - direction='out': 垂直纸面向外（矢量绘制实心圆点 '·'）；
+      - label: 可选符号（如 r'$B$'），自动置于网格间隙中心 cell=(ix, iy)，天然避开所有点叉符号。
+    """
+    xs = np.linspace(x_range[0], x_range[1], nx)
+    ys = np.linspace(y_range[0], y_range[1], ny)
+    for x in xs:
+        for y in ys:
+            if direction == 'in':
+                ax.plot([x - size, x + size], [y - size, y + size],
+                        color=COLOR_BLACK, lw=lw, zorder=zorder)
+                ax.plot([x - size, x + size], [y + size, y - size],
+                        color=COLOR_BLACK, lw=lw, zorder=zorder)
+            else:
+                ax.add_patch(patches.Circle(
+                    (x, y), size * 0.42, facecolor=COLOR_BLACK, edgecolor='none', zorder=zorder
+                ))
+    if label and nx >= 2 and ny >= 2:
+        ix = cell[0] if cell[0] >= 0 else (nx - 1 + cell[0])
+        iy = cell[1] if cell[1] >= 0 else (ny - 1 + cell[1])
+        ix = max(0, min(nx - 2, ix))
+        iy = max(0, min(ny - 2, iy))
+        lx = 0.5 * (xs[ix] + xs[ix + 1])
+        ly = 0.5 * (ys[iy] + ys[iy + 1])
+        ax.text(lx, ly, label, fontsize=FS_SYM, ha='center', va='center', zorder=zorder + 2)
+
+
+def draw_node(ax, x, y, r=0.055, zorder=7):
+    """绘制电路导线分支节点实心黑圆点。"""
+    ax.add_patch(patches.Circle((x, y), r, facecolor=COLOR_BLACK, edgecolor=COLOR_BLACK, zorder=zorder))
+
+
+def draw_meter(ax, center, radius=0.30, symbol='A', lw=LW_THICK, fs=FS_SYM, zorder=6):
+    """绘制圆圈电表（A / V / G / Ω），纯白填充自动遮挡穿心导线，符号强制正体。"""
+    cx, cy = center
+    ax.add_patch(patches.Circle(
+        (cx, cy), radius, facecolor=COLOR_WHITE, edgecolor=COLOR_BLACK, lw=lw, zorder=zorder
+    ))
+    if symbol in ('Ω', r'\Omega', 'Omega'):
+        lbl = r'$\Omega$'
+    elif symbol.startswith('$'):
+        lbl = symbol
+    else:
+        lbl = rf'$\mathrm{{{symbol}}}$'
+    ax.text(cx, cy, lbl, fontsize=fs, ha='center', va='center', zorder=zorder + 1)
+
+
+def draw_resistor(ax, p1, p2, length=0.90, width=0.30, label='', lbl_offset=(0.0, 0.34),
+                  variable=False, rheostat=False, fill=COLOR_WHITE, lw=LW_THICK, zorder=5):
+    """
+    沿 p1 -> p2 连线居中绘制 GB/T 4728 矩形电阻及两端引线：
+      - variable=True: 叠加斜穿实心燕尾箭头（可变电阻 / 电阻箱）；
+      - rheostat=True: 在矩形上方绘制滑片垂直触头箭头并返回滑片引出端坐标 (wx, wy)。
+    """
+    x1, y1 = p1
+    x2, y2 = p2
+    dx, dy = x2 - x1, y2 - y1
+    dist = math.hypot(dx, dy)
+    ux, uy = dx / dist, dy / dist
+    nx, ny = -uy, ux
+    mx, my = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+    hl = min(length, dist * 0.85) / 2.0
+    hw = width / 2.0
+
+    a1 = (mx - ux * hl, my - uy * hl)
+    a2 = (mx + ux * hl, my + uy * hl)
+    ax.plot([x1, a1[0]], [y1, a1[1]], color=COLOR_BLACK, lw=LW_MED, zorder=zorder - 1)
+    ax.plot([a2[0], x2], [a2[1], y2], color=COLOR_BLACK, lw=LW_MED, zorder=zorder - 1)
+
+    corners = [
+        (a1[0] - nx * hw, a1[1] - ny * hw),
+        (a2[0] - nx * hw, a2[1] - ny * hw),
+        (a2[0] + nx * hw, a2[1] + ny * hw),
+        (a1[0] + nx * hw, a1[1] + ny * hw),
+    ]
+    ax.add_patch(patches.Polygon(
+        corners, facecolor=fill, edgecolor=COLOR_BLACK, lw=lw, zorder=zorder
+    ))
+
+    if variable:
+        s0 = (mx - ux * hl * 0.85 - nx * hw * 1.65, my - uy * hl * 0.85 - ny * hw * 1.65)
+        s1 = (mx + ux * hl * 0.95 + nx * hw * 1.85, my + uy * hl * 0.95 + ny * hw * 1.85)
+        draw_arrow(ax, s0[0], s0[1], s1[0], s1[1], lw=LW_THIN, hl=1.0, hw=0.36, zorder=zorder + 1)
+
+    wiper_top = None
+    if rheostat:
+        wiper_tip = (mx + nx * hw, my + ny * hw)
+        wiper_top = (mx + nx * (hw + 0.42), my + ny * (hw + 0.42))
+        draw_arrow(ax, wiper_top[0], wiper_top[1], wiper_tip[0], wiper_tip[1],
+                   lw=LW_MED, hl=0.95, hw=0.35, zorder=zorder + 1)
+
+    if label:
+        ax.text(mx + lbl_offset[0], my + lbl_offset[1], label,
+                fontsize=FS_SYM, ha='center', va='center', zorder=zorder + 2)
+    return wiper_top
+
+
+def draw_battery(ax, p1, p2, gap=0.16, long_h=0.56, short_h=0.30,
+                 label='', lbl_offset=(0.0, 0.44), zorder=5):
+    """沿 p1 -> p2 绘制直流电源（p1 侧为正极长细板，p2 侧为负极短粗板）及两端引线。"""
+    x1, y1 = p1
+    x2, y2 = p2
+    dx, dy = x2 - x1, y2 - y1
+    dist = math.hypot(dx, dy)
+    ux, uy = dx / dist, dy / dist
+    nx, ny = -uy, ux
+    mx, my = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+    c_pos = (mx - ux * (gap / 2.0), my - uy * (gap / 2.0))
+    c_neg = (mx + ux * (gap / 2.0), my + uy * (gap / 2.0))
+
+    ax.plot([x1, c_pos[0]], [y1, c_pos[1]], color=COLOR_BLACK, lw=LW_MED, zorder=zorder - 1)
+    ax.plot([c_neg[0], x2], [c_neg[1], y2], color=COLOR_BLACK, lw=LW_MED, zorder=zorder - 1)
+    ax.plot([c_pos[0] - nx * long_h / 2, c_pos[0] + nx * long_h / 2],
+            [c_pos[1] - ny * long_h / 2, c_pos[1] + ny * long_h / 2],
+            color=COLOR_BLACK, lw=LW_MED, zorder=zorder)
+    ax.plot([c_neg[0] - nx * short_h / 2, c_neg[0] + nx * short_h / 2],
+            [c_neg[1] - ny * short_h / 2, c_neg[1] + ny * short_h / 2],
+            color=COLOR_BLACK, lw=LW_THICK * 1.35, solid_capstyle='butt', zorder=zorder)
+    if label:
+        ax.text(mx + lbl_offset[0], my + lbl_offset[1], label,
+                fontsize=FS_SYM, ha='center', va='center', zorder=zorder + 1)
+
+
+def draw_capacitor(ax, p1, p2, gap=0.18, plate_h=0.48,
+                   label='', lbl_offset=(0.0, 0.40), zorder=5):
+    """沿 p1 -> p2 绘制平行板电容器及两端引线。"""
+    x1, y1 = p1
+    x2, y2 = p2
+    dx, dy = x2 - x1, y2 - y1
+    dist = math.hypot(dx, dy)
+    ux, uy = dx / dist, dy / dist
+    nx, ny = -uy, ux
+    mx, my = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+    c1 = (mx - ux * (gap / 2.0), my - uy * (gap / 2.0))
+    c2 = (mx + ux * (gap / 2.0), my + uy * (gap / 2.0))
+
+    ax.plot([x1, c1[0]], [y1, c1[1]], color=COLOR_BLACK, lw=LW_MED, zorder=zorder - 1)
+    ax.plot([c2[0], x2], [c2[1], y2], color=COLOR_BLACK, lw=LW_MED, zorder=zorder - 1)
+    for c in (c1, c2):
+        ax.plot([c[0] - nx * plate_h / 2, c[0] + nx * plate_h / 2],
+                [c[1] - ny * plate_h / 2, c[1] + ny * plate_h / 2],
+                color=COLOR_BLACK, lw=LW_THICK, zorder=zorder)
+    if label:
+        ax.text(mx + lbl_offset[0], my + lbl_offset[1], label,
+                fontsize=FS_SYM, ha='center', va='center', zorder=zorder + 1)
+
+
+def draw_switch(ax, p1, p2, span=0.56, angle_deg=28, closed=False,
+                label='', lbl_offset=(0.0, 0.38), zorder=5):
+    """沿 p1 -> p2 绘制单刀开关（默认断开，closed=True 为闭合）及两端引线。"""
+    x1, y1 = p1
+    x2, y2 = p2
+    dx, dy = x2 - x1, y2 - y1
+    dist = math.hypot(dx, dy)
+    ux, uy = dx / dist, dy / dist
+    nx, ny = -uy, ux
+    mx, my = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+    hs = min(span, dist * 0.8) / 2.0
+    t1 = (mx - ux * hs, my - uy * hs)
+    t2 = (mx + ux * hs, my + uy * hs)
+
+    ax.plot([x1, t1[0]], [y1, t1[1]], color=COLOR_BLACK, lw=LW_MED, zorder=zorder - 1)
+    ax.plot([t2[0], x2], [t2[1], y2], color=COLOR_BLACK, lw=LW_MED, zorder=zorder - 1)
+    ang = math.radians(4.0 if closed else angle_deg)
+    blade_len = 2.0 * hs * 1.04
+    bx = t1[0] + blade_len * (ux * math.cos(ang) + nx * math.sin(ang))
+    by = t1[1] + blade_len * (uy * math.cos(ang) + ny * math.sin(ang))
+    ax.plot([t1[0], bx], [t1[1], by], color=COLOR_BLACK, lw=LW_THICK, zorder=zorder)
+    for t in (t1, t2):
+        ax.add_patch(patches.Circle(t, 0.048, facecolor=COLOR_WHITE, edgecolor=COLOR_BLACK,
+                                    lw=LW_MED, zorder=zorder + 1))
+    if label:
+        ax.text(mx + lbl_offset[0], my + lbl_offset[1], label,
+                fontsize=FS_SYM, ha='center', va='center', zorder=zorder + 2)
