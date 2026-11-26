@@ -15,14 +15,15 @@ description: Use when creating targeted variant practice sets, exam-review works
 | [references/drawing-and-qa.md](references/drawing-and-qa.md) | 阶段二必读：二维/三维与双子图路由、4 档预设-嵌宽速查、视觉公理与 PDF 真实渲染终检 |
 | [scripts/extract_source_docx.py](scripts/extract_source_docx.py) | 阶段一直接运行（纯标准库）：无损还原原卷/答案 DOCX 中的 OMML 公式并导出嵌入图锚点 |
 | [scripts/select_subset.py](scripts/select_subset.py) | 考后抽题直接运行（纯标准库）：从全卷母库按错题题号抽题重排并同步裁剪教师版总览表 |
+| [scripts/ensure_env.py](scripts/ensure_env.py) | 阶段二前置运行（纯标准库）：自动检测并一键补齐专用虚拟环境、Linux 宋体/黑体 fontconfig 映射与外部工具 |
 | [scripts/physics_draw.py](scripts/physics_draw.py) | 阶段二直接导入：300 DPI 纯黑白防压缩制图库（预设画布、燕尾箭头、简体宋体锁死、常用原语） |
 | [scripts/build_docx.py](scripts/build_docx.py) | 阶段一 `precheck`（纯标准库）+ 阶段二 `compile`：A4 模板编译、表格防劈裂、OMML 正体锁死与七重终检 |
 
 ## 运行环境约定
 
-- **纯标准库脚本**（`extract_source_docx.py`、`select_subset.py`、`build_docx.py precheck`）：直接用 `python3` 运行。
-- **制图与编译脚本**（`physics_draw.py`、`build_docx.py compile`）：使用专用虚拟环境 `~/.local/share/physics-variant-bank-venv/bin/python`（或 `uv run --with-requirements requirements.txt python3`），严禁裸跑缺失依赖的系统 `python`。
-- **Linux 服务端 PDF 中文字形**：本机已通过 `~/.config/fontconfig/fonts.conf` 将 `宋体/SimSun` 映射至 `Noto Serif CJK SC`、`黑体/SimHei` 映射至 `Noto Sans CJK SC`；跨机器迁移时须同步配置。
+- **纯标准库脚本**（`extract_source_docx.py`、`select_subset.py`、`ensure_env.py`、`build_docx.py precheck`）：直接用 `python3` 运行，零第三方依赖。
+- **零配置自愈（换机必跑）：** 进入阶段二制图或编译前，先运行 `python3 scripts/ensure_env.py`。脚本会自动检测并在缺失时一键创建 `~/.local/share/physics-variant-bank-venv`（按 `requirements.txt` 安装依赖）、在 Linux 上自动写入非破坏性 `~/.config/fontconfig/conf.d/99-physics-variant-bank-cjk.conf` 将 `宋体/SimSun` 映射至陆标简体宋体、并核查 `pandoc`/`libreoffice`/`pdftoppm` 是否就绪。
+- **制图与编译脚本**（`physics_draw.py`、`build_docx.py compile`）：统一使用 `ensure_env.py` 输出的 `VENV_PY`（默认 `~/.local/share/physics-variant-bank-venv/bin/python`）运行，严禁裸跑缺失依赖的系统 `python`。
 
 ## 工作模式与启动规则
 
@@ -55,13 +56,14 @@ description: Use when creating targeted variant practice sets, exam-review works
    ```
    须输出 `[PRECHECK PASS]`；若采用“先库后卷”模式，至此即可交付 Markdown 母库，待考后用 `select_subset.py` 抽题进入阶段二。
 
-### 阶段二：预设化配图、一键编译与真实渲染终检
-1. 读取 [references/drawing-and-qa.md](references/drawing-and-qa.md)，按有效维度路由制图（使用专用 venv Python），逐图渲染并目视核验通过后再进入下一步。
-2. 统一通过脚本完成编译与全部自动门禁（严禁手拼残缺命令或手改 DOCX XML）：
+### 阶段二：环境自检、预设化配图、一键编译与真实渲染终检
+1. 先运行 `python3 scripts/ensure_env.py` 完成环境自检与自动补齐（须输出 `[ENV PASS]`；若提示缺少系统级 `pandoc`/`libreoffice`/`pdftoppm` 或陆标中文字体包，先按提示安装）。
+2. 读取 [references/drawing-and-qa.md](references/drawing-and-qa.md)，按有效维度路由制图（使用 `ensure_env.py` 确认的 `VENV_PY`），逐图渲染并目视核验通过后再进入下一步。
+3. 统一通过脚本完成编译与全部自动门禁（严禁手拼残缺命令或手改 DOCX XML）：
    ```bash
    VENV_PY=~/.local/share/physics-variant-bank-venv/bin/python
    $VENV_PY scripts/build_docx.py compile student_bank.md "{卷名}_学生版.docx" --expected-imgs N --pdf --preview-dir preview_s
    $VENV_PY scripts/build_docx.py compile teacher_bank.md "{卷名}_教师版.docx" --expected-imgs M --pdf --preview-dir preview_t
    ```
    须全部输出 `[PRECHECK PASS]` 与 `[PASS]`（门禁项由脚本自动校验）。
-3. 打开 `preview_s/` 与 `preview_t/` 中的关键 PDF 渲染页目视抽检，核对字号、简体常规宋字形、公式、表格跨页与分页连贯性；如实说明已验证的渲染环境，清理临时预览目录后交付。
+4. 打开 `preview_s/` 与 `preview_t/` 中的关键 PDF 渲染页目视抽检，核对字号、简体常规宋字形、公式、表格跨页与分页连贯性；如实说明已验证的渲染环境，清理临时预览目录后交付。

@@ -42,8 +42,8 @@ def _require_docx_deps():
         from docx.oxml.ns import qn as _qn, nsdecls as _nsdecls
     except ImportError as exc:
         raise RuntimeError(
-            f"缺少编译依赖 ({exc})。请使用专用虚拟环境运行："
-            "~/.local/share/physics-variant-bank-venv/bin/python 或 `uv run --with pillow,python-docx,lxml`。"
+            f"缺少编译依赖 ({exc})。请先运行 `python3 scripts/ensure_env.py` 自动配置环境，"
+            "再使用 ~/.local/share/physics-variant-bank-venv/bin/python 执行编译。"
         ) from exc
     Image, etree, Document = _Image, _etree, _Document
     Cm, Pt, RGBColor = _Cm, _Pt, _RGBColor
