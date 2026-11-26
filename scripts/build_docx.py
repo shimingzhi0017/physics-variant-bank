@@ -4,8 +4,11 @@
 设计目标：无论在哪个项目、哪次会话运行，均通过唯一标准管线生成完全一致的 A4 印刷级 DOCX 与 PDF。
 
 一键命令行用法：
-  python scripts/build_docx.py compile student_bank.md 输出_学生版.docx --expected-imgs 10 --pdf --preview-dir preview_s
-  python scripts/build_docx.py compile teacher_bank.md 输出_教师版.docx --expected-imgs 9 --pdf --preview-dir preview_t
+  # 阶段一独立预检（仅需 Python 标准库，无需第三方依赖）
+  python3 scripts/build_docx.py precheck student_bank.md teacher_bank.md
+  # 阶段二一键编译 DOCX/PDF 并七重终检（需安装 pillow/python-docx/lxml）
+  python3 scripts/build_docx.py compile student_bank.md 输出_学生版.docx --expected-imgs 10 --pdf --preview-dir preview_s
+  python3 scripts/build_docx.py compile teacher_bank.md 输出_教师版.docx --expected-imgs 9 --pdf --preview-dir preview_t
 """
 import argparse
 import os
@@ -16,18 +19,38 @@ import tempfile
 import zipfile
 from io import BytesIO
 
-from PIL import Image
-from lxml import etree
-from docx import Document
-from docx.shared import Cm, Pt, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
-from docx.oxml import OxmlElement, parse_xml
-from docx.oxml.ns import qn, nsdecls
-
 EMU_PER_INCH = 914400.0
 EMU_PER_CM = 360000.0
 M_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/math'
+
+
+def _require_docx_deps():
+    """延迟加载 DOCX/图像依赖，确保 precheck 子命令在纯标准库环境下可直接运行。"""
+    global Image, etree, Document, Cm, Pt, RGBColor
+    global WD_ALIGN_PARAGRAPH, WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
+    global OxmlElement, parse_xml, qn, nsdecls
+    if 'Document' in globals():
+        return
+    try:
+        from PIL import Image as _Image
+        from lxml import etree as _etree
+        from docx import Document as _Document
+        from docx.shared import Cm as _Cm, Pt as _Pt, RGBColor as _RGBColor
+        from docx.enum.text import WD_ALIGN_PARAGRAPH as _WD_ALIGN_PARAGRAPH
+        from docx.enum.table import WD_TABLE_ALIGNMENT as _WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL as _WD_ALIGN_VERTICAL
+        from docx.oxml import OxmlElement as _OxmlElement, parse_xml as _parse_xml
+        from docx.oxml.ns import qn as _qn, nsdecls as _nsdecls
+    except ImportError as exc:
+        raise RuntimeError(
+            f"缺少编译依赖 ({exc})。请使用专用虚拟环境运行："
+            "~/.local/share/physics-variant-bank-venv/bin/python 或 `uv run --with pillow,python-docx,lxml`。"
+        ) from exc
+    Image, etree, Document = _Image, _etree, _Document
+    Cm, Pt, RGBColor = _Cm, _Pt, _RGBColor
+    WD_ALIGN_PARAGRAPH = _WD_ALIGN_PARAGRAPH
+    WD_TABLE_ALIGNMENT = _WD_TABLE_ALIGNMENT
+    WD_ALIGN_VERTICAL = _WD_ALIGN_VERTICAL
+    OxmlElement, parse_xml, qn, nsdecls = _OxmlElement, _parse_xml, _qn, _nsdecls
 
 
 def _set_run_fonts(style, east_asia, ascii_font='Times New Roman'):
@@ -47,6 +70,7 @@ def build_reference_docx(path='reference.docx', base_docx=None):
     自动以 `pandoc --print-default-data-file reference.docx` 为基底，完整保留 Pandoc
     内置的 Table / Compact / FirstParagraph 样式，彻底防止 LibreOffice 表格坍塌错位。
     """
+    _require_docx_deps()
     tmp_base = None
     if base_docx is None and shutil.which('pandoc'):
         fd, tmp_base = tempfile.mkstemp(suffix='.docx')
@@ -226,14 +250,21 @@ def fix_omml_upright(doc):
 
 def postprocess_docx(path):
     """后处理：卷头居中、含图段落居中、引导句与下方公式/插图同页绑定、全部表格写入全框线、OMML正体单位锁死。"""
+    _require_docx_deps()
     doc = Document(path)
     fix_omml_upright(doc)
     if doc.paragraphs:
         doc.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-    if len(doc.paragraphs) > 1:
-        t1 = doc.paragraphs[1].text
-        if any(k in t1 for k in ('考试时间', '满分', '说明')):
-            doc.paragraphs[1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # 扫描首个二级标题之前的卷头区（最多前 4 段），将副标题与考试元信息居中
+    header_keys = ('考试时间', '建议用时', '满分', '物理试卷', '学生版', '教师版')
+    for idx in range(1, min(4, len(doc.paragraphs))):
+        p = doc.paragraphs[idx]
+        sname = (p.style.name or '').lower() if p.style else ''
+        if sname.startswith('heading 2'):
+            break
+        t = p.text.strip()
+        if t and any(k in t for k in header_keys):
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     paras = doc.paragraphs
     for i, p in enumerate(paras):
@@ -268,6 +299,7 @@ def verify_docx(docx_path, expected_imgs=None, max_ar_err_pct=0.5,
       7. 全部图片相对 300 DPI 原始尺寸的印刷缩放比落入 [min_print_scale, max_print_scale]，
          硬性锁定纸面等效印刷字号 >= 11.5 pt，杜绝打印字小看不清。
     """
+    _require_docx_deps()
     doc = Document(docx_path)
 
     # 1. A4 页面尺寸锁死检查
@@ -439,12 +471,16 @@ def precheck_markdown(md_path):
                 f"第 {lineno} 行：选项存在 4 空格以上缩进，Pandoc 会误判为代码块，请改为顶格"
             )
 
-        # 3. 行内公式末尾孤立 '='
+        # 3. 行内公式末尾孤立 '=' 与公式内填空下划线
         if not s.startswith('$$'):
             line_no_disp = re.sub(r'\$\$.*?\$\$', '', line)
             if re.search(r'(?<!\$)\$(?!\$)([^$\n]+?)=\s*\$(?!\$)', line_no_disp):
                 errors.append(
                     f"第 {lineno} 行：行内公式以 '=' 结尾，LibreOffice 会渲染为 '¿'，请将等号移至公式外"
+                )
+            if re.search(r'(?<!\$)\$(?!\$)([^$\n]*?\\underline\{\\q?quad|\\underline\{\\hspace)[^$\n]*?\$(?!\$)', line_no_disp):
+                errors.append(
+                    f"第 {lineno} 行：行内公式内部包含 \\underline{{\\qquad}} 填空横线，请移至公式外改用 __________"
                 )
 
     if errors:
@@ -506,6 +542,10 @@ def compile_bank(md_path, out_docx, reference_docx='reference.docx',
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='高中物理变式题库一站式编译与七重终检工具')
     sub = parser.add_subparsers(dest='cmd', required=True)
+
+    p_pre = sub.add_parser('precheck', help='仅执行 Markdown 确定性预检（无第三方依赖，阶段一定稿必跑）')
+    p_pre.add_argument('md_paths', nargs='+', help='待预检的 Markdown 文件路径')
+
     p_comp = sub.add_parser('compile', help='从 Markdown 一键编译 DOCX/PDF 并终检')
     p_comp.add_argument('md_path')
     p_comp.add_argument('out_docx')
@@ -515,7 +555,10 @@ if __name__ == '__main__':
     p_comp.add_argument('--preview-dir', default=None)
 
     args = parser.parse_args()
-    if args.cmd == 'compile':
+    if args.cmd == 'precheck':
+        for md_p in args.md_paths:
+            precheck_markdown(md_p)
+    elif args.cmd == 'compile':
         compile_bank(
             args.md_path,
             args.out_docx,

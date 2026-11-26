@@ -95,16 +95,19 @@ def find_cn_font_path(strict=True):
         return _CACHED_CN_FONT_PATH
 
     here = os.path.dirname(os.path.abspath(__file__))
-    local_sc = os.path.join(here, 'NotoSerifCJKsc-Regular.otf')
-    if os.path.exists(local_sc):
-        _CACHED_CN_FONT_PATH = local_sc
-        return local_sc
+    cache_dir = os.path.join(os.path.expanduser('~'), '.cache', 'physics-variant-bank')
+    cache_sc = os.path.join(cache_dir, 'NotoSerifCJKsc-Regular.otf')
+    legacy_sc = os.path.join(here, 'NotoSerifCJKsc-Regular.otf')
+    for candidate in (cache_sc, legacy_sc):
+        if os.path.exists(candidate):
+            _CACHED_CN_FONT_PATH = candidate
+            return candidate
 
     fonts = font_manager.fontManager.ttflist
     for f in fonts:
         base = os.path.basename(f.fname).lower()
         if 'notoserifcjk' in base and 'bold' not in base and base.endswith('.ttc'):
-            extracted = _extract_sc_regular_from_ttc(f.fname, local_sc)
+            extracted = _extract_sc_regular_from_ttc(f.fname, cache_sc)
             if extracted:
                 _CACHED_CN_FONT_PATH = extracted
                 return extracted
@@ -142,7 +145,7 @@ def setup_style():
 
 
 def new_fig(preset='std', figsize=None, equal=True, dpi=300):
-    """按固定预设创建单图纯白无边框画布（默认 preset='std' -> (5.4, 3.9)）。"""
+    """按固定预设创建单图纯白无边框画布（默认 preset='std' -> (5.0, 3.7)）。"""
     setup_style()
     sz = figsize if figsize is not None else CANVAS_PRESETS[preset]
     fig, ax = plt.subplots(figsize=sz, dpi=dpi)
@@ -153,13 +156,23 @@ def new_fig(preset='std', figsize=None, equal=True, dpi=300):
 
 
 def new_subplots(nrows=1, ncols=2, preset='dual', figsize=None, width_ratios=None, equal=True, dpi=300):
-    """按固定预设创建多子图纯白无边框画布（默认 preset='dual' -> (8.4, 4.1)）。"""
+    """
+    按固定预设创建多子图纯白无边框画布（默认 preset='dual' -> (8.0, 3.9)）。
+    equal 支持布尔值（统一设置）或与子图总数等长的布尔序列（如 equal=(True, False) 适配图甲装置 + 图乙图像）。
+    """
     setup_style()
     sz = figsize if figsize is not None else CANVAS_PRESETS[preset]
     kw = {'width_ratios': width_ratios} if width_ratios else None
     fig, axes = plt.subplots(nrows, ncols, figsize=sz, gridspec_kw=kw, dpi=dpi)
-    for ax in np.atleast_1d(axes).ravel():
-        if equal:
+    flat_axes = np.atleast_1d(axes).ravel()
+    if isinstance(equal, (list, tuple)):
+        if len(equal) != len(flat_axes):
+            raise ValueError(f"equal 长度 ({len(equal)}) 须与子图数量 ({len(flat_axes)}) 一致。")
+        eq_flags = equal
+    else:
+        eq_flags = [bool(equal)] * len(flat_axes)
+    for ax, eq in zip(flat_axes, eq_flags):
+        if eq:
             ax.set_aspect('equal')
         ax.axis('off')
     return fig, axes

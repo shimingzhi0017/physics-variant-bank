@@ -22,7 +22,8 @@
 | `'dual'` | 双子图（图甲装置 + 图乙图像、左右对比图） | `(8.0, 3.9)` | `{width=15.5cm}` |
 
 **脚本调用要点（具体常量见 `scripts/physics_draw.py`）：**
-- 中文标注统一用 `get_cn_font()`，中文下标用 `draw_cn_sub()`，**严禁在 Matplotlib `mathtext` 中使用 `\text{...}` 或 `\triangle`**；
+- 中文标注统一用 `get_cn_font()`（自动缓存至 `~/.cache/physics-variant-bank/`），中文下标用 `draw_cn_sub()`，**严禁在 Matplotlib `mathtext` 中使用 `\text{...}` 或 `\triangle`**；
+- 双子图含“几何装置 + 函数图像”组合时，使用 `new_subplots(1, 2, preset='dual', equal=(True, False))` 分别为左图锁定等比例、右图放开纵横比；
 - 引出线统一用 `leader_arrowprops()`，旋转方向用 `draw_rot_arc()`，斜面物块核对 `slope_dir='down_right'|'up_right'`；
 - 调用 `save_fig(fig, path, preset=...)` 自动检查紧裁剪后的预期 `print_scale`，若 `equal=True` 导致图幅偏窄触发 `[WARN]`，立即改换 `'tall'` 预设或调整坐标范围。
 
