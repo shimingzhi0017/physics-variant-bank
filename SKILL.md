@@ -11,7 +11,7 @@ description: Use when creating targeted variant practice sets, exam-review works
 
 | 路径 | 职责与读取时机 |
 | :--- | :--- |
-| [references/physics-design.md](references/physics-design.md) | 阶段一必读：实质变式、反同型测试、反数学化、阶梯设问、动态解析与 Markdown 书写底线 |
+| [references/physics-design.md](references/physics-design.md) | 阶段一必读：默认等难锚定、同级实质变式、反同型测试、反数学化、阶梯设问与 Markdown 书写底线 |
 | [references/drawing-and-qa.md](references/drawing-and-qa.md) | 阶段二必读：二维/三维与多子图路由、5 档预设-嵌宽速查、视觉公理与 PDF 真实渲染终检 |
 | [scripts/extract_source_docx.py](scripts/extract_source_docx.py) | 阶段一直接运行（纯标准库）：支持 DOCX/DOC/PDF，还原 OMML 公式、导出题图并在含 PDF/MathType WMF 时自动渲染整页高清图 |
 | [scripts/select_subset.py](scripts/select_subset.py) | 考后抽题直接运行（纯标准库）：按错题题号抽题重排、自动折表、识别多选、同步拷图并裁剪教师版 |
@@ -28,7 +28,7 @@ description: Use when creating targeted variant practice sets, exam-review works
 ## 工作模式与启动规则
 
 - **全中文交互：** 汇报、澄清与交付文档均用简体中文；符号、公式、路径与命令保留规范写法。
-- **按范围直接启动：** 用户已指定题号、题量或修订任务时直接执行，不弹窗确认；范围未明确时简要给出 3 个选项：1) 逐题 1:1 变式；2) 挑典型高频易错题生成靶向变式；3) 仅输出考点诊断与原题答案核查表。
+- **按范围直接启动（默认同级等难）：** 用户已指定题号、题量或修订任务时直接执行，不弹窗确认；默认按**与原题同级等难**生成变式（支持用户显式指定 `降难巩固` / `等难变式` / `拔高进阶`）。范围未明确时简要给出 3 个选项：1) 逐题 1:1 等难变式；2) 挑典型高频易错题生成靶向变式；3) 仅输出考点诊断与原题答案核查表。
 - **三模式自适应：**
   1. **整卷/分批直出模式（默认）：** 固定图号 `figs/fig_q{题号:02d}.png`、`figs_sol/sol_q{题号:02d}.png`，合并直接拼接 Markdown 重跑编译；
   2. **先库后卷分步模式（考前建库 $\to$ 考后按错题组卷）：** 阶段一仅保存 `student_bank.md`、`teacher_bank.md`（图位用 `<!-- 待配图：... -->` 占位）并必跑 `build_docx.py precheck`；考后用 `select_subset.py --pick ...` 抽题重排，仅对入选错题补绘配图并编译成品；
@@ -42,7 +42,7 @@ description: Use when creating targeted variant practice sets, exam-review works
   - **例题讲义 / 专题集 / 错题集输入**（无大题分节）：严格按原题顺序连续编号，不重排题序、不强行拆大题分节；多选题在题干首部标注 `（多选）`。
 - **教师版固定骨架（与学生版 1:1 对应）：**
   1. `## 一、参考答案总览表`（选择题填表，**每张表横向最多排 10 题**，超过 10 题拆为上下多张表；含非选择题时表下用 `- **题号.** ...` 附简答）
-  2. `## 二、原题考点诊断、答案核查与变式映射总览表`（固定 4 列：`题号 | 原题核心考点与高频易错点 | 原题参考答案核查 | 变式核心模型与思维升维切入点`；无原题答案时第 3 列写 `无原答案（独立求得：...）`，原答案有误时写明原给值、更正值与错因）
+  2. `## 二、原题考点诊断、答案核查与变式映射总览表`（固定 4 列：`题号 | 原题核心考点与高频易错点 | 原题参考答案核查 | 变式核心模型与重构切入点`；无原题答案时第 3 列写 `无原答案（独立求得：...）`，原答案有误时写明原给值、更正值与错因）
   3. `## 三、逐题参考答案与深度详析`（每题标题 `### **题号.**`，固定顺序：**【参考答案】** $\to$ 教师解析图（按需） $\to$ **【分步解析】** $\to$ **【防错点拨】**）
 
 ## 两阶段执行流程
